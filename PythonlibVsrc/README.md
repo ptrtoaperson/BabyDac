@@ -1,0 +1,108 @@
+PythonlibVsrc
+
+A Python driver library for a 24-channel DAC/voltage-source instrument controlled by STM32 over Ethernet or UART.
+Both transports are handled through PyVISA.
+
+Files
+- device.py: Single-file implementation containing API, transport, protocol encoding, and validation helpers
+- __init__.py: Package exports
+
+Quick start (class API)
+1. Create a device and connect
+2. Run one command directly (auto-send), or enter batch mode
+3. Send once only for batch mode
+4. Close automatically with context manager
+
+Transport connection options
+- Ethernet via PyVISA: `device.connect(ip="192.168.1.50", port=5000)`
+- Serial via PyVISA: `device.connect(serial="/dev/ttyUSB0", baud=115200)`
+
+Instantiation-time connection check
+- VoltageSource now performs a one-shot connection check during object creation by default.
+- If the endpoint is unreachable, constructor raises immediately.
+- Disable this behavior when needed:
+    - `VoltageSource(..., check_connection_on_init=False)`
+
+Example
+from device import VoltageSource
+
+with VoltageSource(ip="192.168.1.50", port=5000) as dac:
+    dac.set_voltage(0, 1.5)
+
+with VoltageSource(serial="/dev/ttyUSB0", baud=115200) as dac:
+    dac.set_voltage(0, 1.5)
+
+with VoltageSource(ip="192.168.1.50", port=5000) as dac:
+    with dac.batch():
+        dac.set_voltages([(1, -2.0), (2, 3.0)])
+        dac.assign_pwm([
+            (0, 0, 0, 5, 100),
+            (8, 1, -2, 2, 500),
+            (15, 2, 1, 3, 1000),
+        ])
+        dac.set_trigger_level(0, 2.3)
+    dac.send()
+
+Bulk voltage forms
+- dac.set_voltages({0: 1.0, 1: -1.0})
+- dac.set_voltages([(0, 1.0), (1, -1.0)])
+- dac.set_voltages(channels=[0, 1], voltages=[1.0, -1.0])
+
+Sequences
+- External-triggered: send_voltage_sequence(dac_channel, trigger_pin, edge, voltages)
+- Software-timed: send_soft_sequence(dac_channel, delay_ms, voltages)
+
+Single-call workflow
+- API single call (queue + send in one call):
+    dev.execute(lambda d: d.set_voltage(0, 1.5))
+
+Recommended execution strategy
+- Use two explicit modes:
+    - Immediate single action: queue one command and send immediately.
+    - Flow/batch mode: queue multiple commands and send once.
+- Queue methods now auto-send by default in class API.
+- Use batch mode or execute(...) when you want one final send.
+
+Immediate single action (best for interactive use)
+    dev.set_voltage(0, 1.5)
+    dev.start_pwm(1, 0, 0.0, 5.0, 1000.0)
+
+Flow/batch mode (best for scripts)
+    with dev.batch():
+        dev.clear_state()
+        dev.set_voltage(0, 1.5)
+        dev.start_pwm(1, 0, 0.0, 5.0, 1000.0)
+        dev.send_soft_sequence(2, 20, [0.0, 1.0, 2.0])
+    dev.send()
+
+Equivalent one-call batch commit
+    dev.execute(lambda d: (
+        d.clear_state(send_immediately=False),
+        d.set_voltage(0, 1.5, send_immediately=False),
+        d.start_pwm(1, 0, 0.0, 5.0, 1000.0, send_immediately=False),
+        d.send_soft_sequence(2, 20, [0.0, 1.0, 2.0], send_immediately=False),
+    ))
+
+Why this is preferred
+- Predictable behavior: class API sends immediately by default, while batch mode gives one explicit commit point.
+- Fewer transport packets in scripted flows.
+- A single explicit commit point where hardware state is updated.
+
+Compatibility note
+- Module-level legacy helpers keep queue-first behavior and still require send().
+- Class API defaults to immediate send unless batch mode is active.
+
+Validation
+- Channels: 0-23
+- TGP IDs: 0-2
+- Trigger IDs: 0-1
+- Trigger voltage: -11.55 to 11.55
+- PWM frequency: > 0
+
+Dependencies
+- `pyvisa`
+- `pyvisa-py`
+
+Notes
+- Class API updates hardware immediately by default.
+- In batch mode (and in module-level helpers), commands are queued and applied on send().
