@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "BabyDac"
+version = "0.1.0"
+description = "API for the Baby DAC"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jsonrpclib-pelix>=1.0.0",
+    "pyserial>=3.0",
+    "sockets>=1.0.0",
+]
+
+[dependency-groups]
+docs = [
+    "sphinx",
+    "myst-parser",
+    "furo",
+    "sphinx-autodoc-typehints",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["babydac"]
+
+[tool.uv]
+package = true

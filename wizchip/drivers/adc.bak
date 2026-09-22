@@ -1,0 +1,197 @@
+#include "stm32f1xx.h"
+#include "uart.h"
+#include "adc.h"
+#include "delay.h"
+
+
+volatile uint16_t adc_data[2000];
+volatile uint16_t adc_data2[1024];
+uint8_t flag=0;
+
+int adc_init(void)
+{
+	/*Enable clock access to GPIOA*/
+	//enable clock access to GPIOA
+	RCC->APB2ENR|=RCC_APB2ENR_IOPAEN;
+	/*Set PA0 to analog Mode*/
+	GPIOA->CRL&=~GPIO_CRL_CNF0;
+	GPIOA->CRL&=~GPIO_CRL_MODE0;
+
+	/*Enable clock access to ADC1*/
+	RCC->APB2ENR|=RCC_APB2ENR_ADC1EN;
+   /* Set sampling time = 28.5 cycles*/
+   //ADC1->SMPR2 |= ( ADC_SMPR2_SMP0_1 | ADC_SMPR2_SMP0_0); 
+   ADC1->SMPR2 &= ~ADC_SMPR2_SMP0;  
+   ADC1->CR2 &= ~ADC_CR2_ALIGN;
+   /* 
+     Reset Caliberation registers */
+    //ADC1->CR2 |= (ADC_CR2_RSTCAL);
+    //while(ADC1->CR2 & ADC_CR2_RSTCAL);
+    
+    /* Start caliberation */
+    //ADC1->CR2 |= (ADC_CR2_CAL);
+    //while(ADC1->CR2 & ADC_CR2_CAL);
+   /*Set the trigger to be software mode*/
+	ADC1->CR2 |= (7UL << ADC_CR2_EXTSEL_Pos);
+	/*Power up the adc*/
+	ADC1->CR2|=ADC_CR2_ADON;
+
+	/*align right*/
+	
+
+	/*Launch the ADC*/
+	ADC1->CR2|=ADC_CR2_ADON;
+	for(int i = 0; i <100; i++);
+	return 0;
+
+}
+
+void adc_poll(void)
+	{
+		adc_data[0] = 0x0000;
+		/*Relaunch the ADC*/
+	
+		ADC1->CR2|=ADC_CR2_ADON;
+		_us_delay(1);
+		/*Launch the ADC conversion*/
+		ADC1->CR2|=ADC_CR2_SWSTART;
+
+		/*wait for EOC*/
+
+		while(!(ADC1->SR &ADC_SR_EOC));
+
+		adc_data[0]=ADC1->DR;
+		//return adc_data;
+
+	}
+/*
+void adc_poll_cont(void)
+	{
+		adc_data = 0x0000;
+		//Relaunch the ADC
+		ADC1->CR2|=ADC_CR2_CONT;
+			ADC1->CR2|=ADC_CR2_ADON;
+			_us_delay(1);
+		//Launch the ADC conversion
+		ADC1->CR2|=ADC_CR2_SWSTART;
+
+		//wait for EOC
+
+		while(!(ADC1->SR &ADC_SR_EOC));
+
+		adc_data=ADC1->DR;
+		//return adc_data;
+
+	}
+
+*/
+
+	#define ADC_Channels 	0x01
+
+#define ADC_CH0			0x00 //PA0
+#define ADC_CH1			0x01 //PA1
+
+void adc_init_cont(void) 
+{
+
+	//enable clock access to GPIOA
+	RCC->APB2ENR|=RCC_APB2ENR_IOPAEN;
+	//Set PA0 to analog Mode
+	GPIOA->CRL&=~GPIO_CRL_CNF0;
+	GPIOA->CRL&=~GPIO_CRL_MODE0;
+
+
+
+	//Enable clock access to ADC1
+	RCC->APB2ENR|=RCC_APB2ENR_ADC1EN;
+
+	
+	ADC1->CR2 |= ADC_CR2_EXTTRIG;
+	ADC1->CR2 |=ADC_CR2_EXTSEL_2;
+	//Disable Continuous mode 
+
+	ADC1->CR2&=~ADC_CR2_CONT;
+
+	//Enable scan mode
+	ADC1->CR1|=ADC_CR1_SCAN;
+
+	//Enable DMA for ADC
+	ADC1->CR2|=ADC_CR2_DMA;
+
+	//Set length to 2
+	ADC1->SQR1|=0x00;//(ADC_Channels<<ADC_SQR1_L_Pos);
+
+	
+	ADC1->SQR3 &= (ADC_CH0<<ADC_SQR3_SQ1_Pos);//|(ADC_CH1<<ADC_SQR3_SQ2_Pos);
+
+	//DMA Related stuff
+
+	//Enable Clock access to DMA1
+	RCC->AHBENR|=RCC_AHBENR_DMA1EN;
+
+	//DMA1_Channel1 is for ADC1
+
+	DMA1_Channel1->CCR|=DMA_CCR_MSIZE_0|DMA_CCR_PSIZE_0|DMA_CCR_MINC
+			|DMA_CCR_CIRC|DMA_CCR_TCIE ;
+			
+	
+			NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+	__enable_irq();
+
+	DMA1_Channel1->CNDTR=2000;
+
+	DMA1_Channel1->CPAR=(uint32_t)(&ADC1->DR);
+
+	DMA1_Channel1->CMAR=(uint32_t)(adc_data);
+	
+	
+	DMA1_Channel1->CCR|=DMA_CCR_EN;
+
+	//new add
+	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN ;
+	TIM3->CR2 |=TIM_CR2_MMS_1;
+	TIM3->PSC=36000-1; // 0.5ms presclaer
+	TIM3->ARR=10-1; // 5ms = 10*0.5  
+	TIM3->CR1 |=TIM_CR1_CEN;
+
+
+	//Power up the adc
+	ADC1->CR2|=ADC_CR2_ADON;
+	//Wait a little bit
+
+		for (int i=0;i<100;i++);
+		//Launch the ADC
+		ADC1->CR2|=ADC_CR2_ADON;
+
+
+}
+
+void DMA1_Channel1_IRQHandler(void)
+{
+    if (DMA1->ISR & DMA_ISR_TCIF1)  // Transfer complete flag for channel 1
+    {
+		uint8_t poll_high = 0;
+	uint8_t poll_low = 0;
+		flag = 1;
+			DMA1->IFCR |= DMA_IFCR_CTCIF1;  // Clear the transfer complete flag
+			uart1_write(0xff);
+			uart1_write(0xff);
+			for(int i = 0; i < 2000;i++)
+			{
+				
+			poll_high = (adc_data[i] >> 8) & 0xff;
+			poll_low = (adc_data[i]) & 0xff;
+			uart1_write(poll_high);
+			uart1_write(poll_low);
+		//_us_delay(900);	
+			
+		}
+		flag = 0;
+		}
+		
+		
+	}
+    
+
+
+
